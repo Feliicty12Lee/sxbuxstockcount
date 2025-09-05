@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Count Scanner (FOH/BOH + Linker)</title>
+  <style>
+    :root { --b:#111827; --m:#374151; --g:#6b7280; --bg:#f9fafb; --br:#e5e7eb; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; background: var(--bg); color: var(--b); }
+    h1 { margin: 0 0 10px 0; font-size: 20px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+    .card { background: white; border:1px solid var(--br); border-radius: 10px; padding: 12px; margin: 12px 0; box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
+    label { font-size: 14px; color: var(--m); display: inline-flex; flex-direction: column; gap: 6px; }
+    input, select, button, textarea { font-size: 16px; padding: 10px; border-radius: 8px; border:1px solid var(--br); background: white; }
+    button { cursor: pointer; border-color:#d1d5db; }
+    button.primary { background:#111827; color:white; border-color:#111827; }
+    button.ghost { background: transparent; }
+    .muted { color: var(--g); font-size: 12px; }
+    #preview { width: 100%; max-width: 520px; background:#000; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom:1px solid var(--br); padding: 8px; text-align: left; }
+    .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .ok { color:#065f46; } .warn { color:#92400e; } .bad { color:#991b1b; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+    .spacer { flex:1; }
+    .k {font-weight:600; color:#111827;}
+    .section-title { font-weight: 600; margin-bottom: 6px; }
+    .small { font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Stock Count Scanner</h1>
+  <div class="muted">FOH/BOH + Item Linker</div>
+
+  <!-- Global controls -->
+  <div class="card">
+    <div class="row">
+      <label>Mode
+        <select id="mode">
+          <option value="count">COUNT</option>
+          <option value="link">LINK BARCODE</option>
+        </select>
+      </label>
+      <label>Area
+        <select id="area">
+          <option>FOH</option>
+          <option>BOH</option>
+        </select>
+      </label>
+      <label>User
+        <input id="user" placeholder="Your name" />
+      </label>
+      <div class="spacer"></div>
+      <button id="exportLines">Export Counts CSV</button>
+      <button id="exportItems">Export Items CSV</button>
+      <label>Import Items CSV
+        <input id="importItems" type="file" accept=".csv,text/csv" />
+      </label>
+    </div>
+    <div class="row small muted">
+      Tip: In LINK mode, pick an item then click "Capture barcode" and scan. The barcode will be saved to that SKU.
+    </div>
+  </div>
+
+  <!-- Camera -->
+  <div class="card">
+    <div class="row">
+      <button id="start" class="primary">Start Scanner</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="flip">Flip Camera</button>
+      <div class="spacer"></div>
+      <span class="muted" id="camInfo"></span>
+    </div>
+    <video id="preview" playsinline></video>
+    <div class="row small muted">If camera doesn't start, toggle Flip Camera or grant permission.</div>
+  </div>
+
+  <!-- Item selection + actions -->
+  <div class="card">
+    <div class="section-title">Item Selection</div>
+    <div class="row">
+      <input id="search" placeholder="Search by SKU or name…" style="flex:1" />
+      <button id="addItem">Add New Item</button>
+    </div>
+    <div id="itemList" class="grid"></div>
+
+    <div id="linkPanel" class="row" style="display:none">
+      <span class="pill">Link Mode</span>
+      <span id="linkItem" class="k"></span>
+      <button id="capture" class="primary">Capture barcode</button>
+      <button id="clearBarcode" class="ghost">Clear barcode</button>
+      <span id="linkStatus" class="muted"></span>
+    </div>
+
+    <div id="countPanel" class="row" style="display:none">
+      <span class="pill">Count Mode</span>
+      <span id="countItem" class="k"></span>
+      <label>Qty
+        <input id="qty" type="number" inputmode="numeric" min="0" step="1" placeholder="e.g. 12" />
+      </label>
+      <label>Notes
+        <input id="notes" placeholder="optional" />
+      </label>
+      <button id="addLine" class="primary">Add</button>
+      <span id="countStatus" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div class="card">
+    <div class="row">
+      <div class="section-title">Lines Logged</div>
+      <div class="spacer"></div>
+      <button id="clearLines" class="ghost">Clear</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th><th>Area</th><th>Barcode</th><th>SKU</th><th>Item</th><th>Qty</th><th>User</th><th>Notes</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="lines"></tbody>
+    </table>
+  </div>
+
+  <!-- Summary -->
+  <div class="card">
+    <div class="section-title">Summary by SKU</div>
+    <table>
+      <thead>
+        <tr><th>SKU</th><th>Item</th><th>Total</th></tr>
+      </thead>
+      <tbody id="summary"></tbody>
+    </table>
+  </div>
+
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
+  <script>
+    // ====== Storage helpers ======
+    const LINES_KEY = "stock_lines_v2";
+    const ITEMS_KEY = "stock_items_v2";
+    let lines = JSON.parse(localStorage.getItem(LINES_KEY) || "[]");
+    let items = JSON.parse(localStorage.getItem(ITEMS_KEY) || "null");
+
+    // Seed items if first run
+    if (!items) {
+      items = [
+        { sku:"SKU-ESP-250", name:"Espresso Roast 250g", barcode:"", par:12 },
+        { sku:"SKU-GUA-250", name:"Guatemala 250g", barcode:"", par:8 },
+        { sku:"SKU-SYR-VAN-1L", name:"Vanilla Syrup 1L", barcode:"", par:6 },
+        { sku:"SKU-SYR-CAR-1L", name:"Caramel Syrup 1L", barcode:"", par:6 },
+        { sku:"SKU-CUPS-12", name:"Hot Cups 12oz (50)", barcode:"", par:20 },
+        { sku:"SKU-LIDS-12", name:"Hot Lids 12oz (50)", barcode:"", par:20 },
+        { sku:"SKU-MILK-2L", name:"Semi-Skimmed Milk 2L", barcode:"", par:10 },
+        { sku:"SKU-OAT-1L", name:"Oat Drink 1L", barcode:"", par:18 }
+      ];
+      localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
+    }
+
+    const saveLines = () => localStorage.setItem(LINES_KEY, JSON.stringify(lines));
+    const saveItems = () => localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
+
+    // ====== Camera / Scanner ======
+    const codeReader = new ZXing.BrowserMultiFormatReader();
+    let currentDeviceId = null;
+    let devices = [];
+    let scanning = false;
+    let captureToItem = null; // when in LINK mode and waiting for a scan
+
+    const preview = document.getElementById("preview");
+    const startBtn = document.getElementById("start");
+    const stopBtn = document.getElementById("stop");
+    const flipBtn = document.getElementById("flip");
+    const camInfo = document.getElementById("camInfo");
+
+    async function listCameras() {
+      devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      camInfo.textContent = devices.length ? `${devices.length} camera(s) found` : "No camera found";
+      if (!currentDeviceId && devices.length) currentDeviceId = devices[0].deviceId;
+    }
+
+    async function start() {
+      await listCameras();
+      if (!currentDeviceId) return alert("No camera found.");
+      scanning = true;
+      stopBtn.disabled = false;
+      startBtn.disabled = true;
+      codeReader.decodeFromVideoDevice(currentDeviceId, preview, (result, err) => {
+        if (result) onScan(result.getText());
+      });
+    }
+    function stop() {
+      scanning = false;
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+      codeReader.reset();
+    }
+    function flip() {
+      if (!devices.length) return;
+      const idx = devices.findIndex(d => d.deviceId === currentDeviceId);
+      currentDeviceId = devices[(idx + 1) % devices.length].deviceId;
+      if (scanning) { stop(); start(); }
+    }
+
+    startBtn.addEventListener("click", start);
+    stopBtn.addEventListener("click", stop);
+    flipBtn.addEventListener("click", flip);
+
+    // ====== UI elements ======
+    const modeEl = document.getElementById("mode");
+    const areaEl = document.getElementById("area");
+    const userEl = document.getElementById("user");
+
+    const searchEl = document.getElementById("search");
+    const itemList = document.getElementById("itemList");
+    const addItemBtn = document.getElementById("addItem");
+
+    const linkPanel = document.getElementById("linkPanel");
+    const linkItemEl = document.getElementById("linkItem");
+    const linkStatus = document.getElementById("linkStatus");
+    const captureBtn = document.getElementById("capture");
+    const clearBarcodeBtn = document.getElementById("clearBarcode");
+
+    const countPanel = document.getElementById("countPanel");
+    const countItemEl = document.getElementById("countItem");
+    const qtyEl = document.getElementById("qty");
+    const notesEl = document.getElementById("notes");
+    const addLineBtn = document.getElementById("addLine");
+    const countStatus = document.getElementById("countStatus");
+
+    const linesTbody = document.getElementById("lines");
+    const summaryTbody = document.getElementById("summary");
+    const exportLinesBtn = document.getElementById("exportLines");
+    const exportItemsBtn = document.getElementById("exportItems");
+    const importItemsInput = document.getElementById("importItems");
+    const clearLinesBtn = document.getElementById("clearLines");
+
+    // selection state
+    let selectedItem = null;
+
+    function renderItems(filter="") {
+      const q = filter.trim().toLowerCase();
+      const filtered = items
+        .slice()
+        .sort((a,b)=>a.sku.localeCompare(b.sku))
+        .filter(it => !q || it.sku.toLowerCase().includes(q) || it.name.toLowerCase().includes(q));
+      itemList.innerHTML = "";
+      filtered.forEach(it => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.style.padding = "10px";
+        card.innerHTML = `
+          <div class="row">
+            <div><span class="k">${it.sku}</span> — ${it.name}</div>
+            <div class="spacer"></div>
+            <button class="ghost small" data-sku="${it.sku}" data-act="edit">Edit</button>
+            <button class="primary small" data-sku="${it.sku}" data-act="select">Select</button>
+          </div>
+          <div class="small muted">Barcode: ${it.barcode ? it.barcode : "<em>not set</em>"}</div>
+        `;
+        itemList.appendChild(card);
+      });
+    }
+
+    function setModePanels() {
+      const mode = modeEl.value;
+      linkPanel.style.display = (mode === "link" && selectedItem) ? "flex" : "none";
+      countPanel.style.display = (mode === "count" && selectedItem) ? "flex" : "none";
+    }
+
+    // item selection / edit
+    itemList.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const sku = btn.getAttribute("data-sku");
+      const act = btn.getAttribute("data-act");
+      const it = items.find(x => x.sku === sku);
+      if (!it) return;
+
+      if (act === "select") {
+        selectedItem = it;
+        linkItemEl.textContent = `${it.sku} — ${it.name} (${it.barcode || "no barcode"})`;
+        countItemEl.textContent = `${it.sku} — ${it.name}`;
+        setModePanels();
+        qtyEl.focus();
+      } else if (act === "edit") {
+        const newName = prompt("Edit name:", it.name);
+        if (newName === null) return;
+        it.name = newName.trim() || it.name;
+        const newPar = prompt("Edit par (number):", it.par ?? "");
+        if (newPar !== null) it.par = Number(newPar) || 0;
+        saveItems(); renderItems(searchEl.value);
+      }
+    });
+
+    addItemBtn.addEventListener("click", () => {
+      const sku = prompt("New item SKU:");
+      if (!sku) return;
+      if (items.some(x=>x.sku === sku)) return alert("SKU already exists.");
+      const name = prompt("Item name:");
+      if (!name) return;
+      items.push({ sku, name, barcode:"", par:0 });
+      saveItems(); renderItems(searchEl.value);
+    });
+
+    searchEl.addEventListener("input", () => renderItems(searchEl.value));
+    modeEl.addEventListener("change", setModePanels);
+
+    // Link mode actions
+    captureBtn.addEventListener("click", () => {
+      if (!selectedItem) return alert("Select an item first.");
+      captureToItem = selectedItem;
+      linkStatus.textContent = "Waiting for scan…";
+    });
+    clearBarcodeBtn.addEventListener("click", () => {
+      if (!selectedItem) return;
+      selectedItem.barcode = "";
+      saveItems();
+      linkItemEl.textContent = `${selectedItem.sku} — ${selectedItem.name} (no barcode)`;
+      renderItems(searchEl.value);
+      linkStatus.textContent = "Barcode cleared.";
+    });
+
+    // Count mode actions
+    addLineBtn.addEventListener("click", () => {
+      if (!selectedItem) return alert("Select an item first.");
+      const qty = parseInt(qtyEl.value, 10);
+      if (!(qty >= 0)) return alert("Enter a valid quantity.");
+      const row = {
+        ts: new Date().toISOString(),
+        area: areaEl.value,
+        barcode: selectedItem.barcode || "",
+        sku: selectedItem.sku,
+        name: selectedItem.name,
+        qty,
+        user: userEl.value || "",
+        notes: notesEl.value || ""
+      };
+      lines.push(row); saveLines(); renderLines(); renderSummary();
+      qtyEl.value = ""; notesEl.value = "";
+      countStatus.textContent = "Added.";
+    });
+
+    function onScan(barcode) {
+      // If we're capturing for link mode
+      if (captureToItem) {
+        // enforce unique: remove this barcode from any other item first
+        items.forEach(it => { if (it.barcode === barcode) it.barcode = ""; });
+        captureToItem.barcode = barcode;
+        saveItems(); renderItems(searchEl.value);
+        linkItemEl.textContent = `${captureToItem.sku} — ${captureToItem.name} (${barcode})`;
+        linkStatus.textContent = "✔️ Linked";
+        captureToItem = null;
+        return;
+      }
+
+      // COUNT mode scanning: try to resolve to an item, else prompt to link
+      const found = items.find(it => it.barcode === barcode);
+      if (!found) {
+        if (!selectedItem) {
+          alert("Unknown barcode. Select an item, switch to LINK mode and capture this barcode.");
+          return;
+        }
+        if (confirm(`Unknown barcode ${barcode}. Link it to ${selectedItem.sku}?`)) {
+          // unlink from any other item
+          items.forEach(it => { if (it.barcode === barcode) it.barcode = ""; });
+          selectedItem.barcode = barcode;
+          saveItems(); renderItems(searchEl.value);
+          linkItemEl.textContent = `${selectedItem.sku} — ${selectedItem.name} (${barcode})`;
+          setModePanels();
+        }
+        return;
+      }
+
+      // If found, auto-select in count mode for fast logging
+      selectedItem = found;
+      countItemEl.textContent = `${found.sku} — ${found.name}`;
+      linkItemEl.textContent = `${found.sku} — ${found.name} (${found.barcode})`;
+      setModePanels();
+      qtyEl.focus();
+    }
+
+    function renderLines() {
+      linesTbody.innerHTML = "";
+      lines.forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${new Date(r.ts).toLocaleString()}</td>
+          <td>${r.area}</td>
+          <td>${r.barcode || ""}</td>
+          <td>${r.sku}</td>
+          <td>${r.name}</td>
+          <td>${r.qty}</td>
+          <td>${r.user}</td>
+          <td>${r.notes}</td>
+          <td><button data-i="${i}" class="ghost small">✖</button></td>
+        `;
+        linesTbody.appendChild(tr);
+      });
+      linesTbody.querySelectorAll("button[data-i]").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          const idx = +e.target.getAttribute("data-i");
+          lines.splice(idx, 1); saveLines(); renderLines(); renderSummary();
+        });
+      });
+    }
+
+    function renderSummary() {
+      const map = new Map();
+      lines.forEach(r => {
+        const cur = map.get(r.sku) || { name: r.name, total: 0 };
+        cur.total += Number(r.qty) || 0;
+        map.set(r.sku, cur);
+      });
+      summaryTbody.innerHTML = "";
+      for (const [sku, v] of map.entries()) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${sku}</td><td>${v.name}</td><td>${v.total}</td>`;
+        summaryTbody.appendChild(tr);
+      }
+    }
+
+    function toCsv(rows) {
+      const headers = ["Timestamp","Area","Barcode","SKU","Item","Qty","User","Notes"];
+      const esc = s => `"${String(s??"").replaceAll('"','""')}"`;
+      const body = rows.map(r => [r.ts,r.area,r.barcode,r.sku,r.name,r.qty,r.user,r.notes].map(esc).join(",")).join("\n");
+      return headers.join(",") + "\n" + body;
+    }
+    function itemsToCsv(list) {
+      const headers = ["SKU","Name","Barcode","Par"];
+      const esc = s => `"${String(s??"").replaceAll('"','""')}"`;
+      const body = list.map(i => [i.sku,i.name,i.barcode,i.par||0].map(esc).join(",")).join("\n");
+      return headers.join(",") + "\n" + body;
+    }
+    function parseCsv(text) {
+      // very simple CSV parser (no newlines inside quotes)
+      const lines = text.trim().split(/\r?\n/);
+      const out = [];
+      const parseLine = ln => {
+        const cells = [];
+        let cur = "", q = false;
+        for (let i=0;i<ln.length;i++) {
+          const ch = ln[i];
+          if (q) {
+            if (ch === '"' && ln[i+1] === '"') { cur += '"'; i++; }
+            else if (ch === '"') { q = false; }
+            else { cur += ch; }
+          } else {
+            if (ch === '"') q = true;
+            else if (ch === ',') { cells.push(cur); cur = ""; }
+            else { cur += ch; }
+          }
+        }
+        cells.push(cur);
+        return cells;
+      };
+      const header = parseLine(lines[0]).map(s=>s.trim().toLowerCase());
+      for (let r=1;r<lines.length;r++) {
+        const vals = parseLine(lines[r]);
+        const row = {};
+        header.forEach((h, i) => row[h] = vals[i]);
+        out.push(row);
+      }
+      return out;
+    }
+
+    exportLinesBtn.addEventListener("click", () => {
+      const csv = toCsv(lines);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `counts_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    });
+
+    exportItemsBtn.addEventListener("click", () => {
+      const csv = itemsToCsv(items);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `items_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    });
+
+    importItemsInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const rows = parseCsv(text);
+      // expected headers: SKU, Name, Barcode, Par (case-insensitive)
+      const next = [];
+      rows.forEach(r => {
+        if (!r.sku || !r.name) return;
+        next.push({ sku:String(r.sku), name:String(r.name), barcode:String(r.barcode||""), par:Number(r.par||0) });
+      });
+      if (!next.length) return alert("No valid rows found. Need at least SKU and Name.");
+      items = next; saveItems(); renderItems(searchEl.value);
+      alert(`Imported ${items.length} items.`);
+      importItemsInput.value = "";
+    });
+
+    clearLinesBtn.addEventListener("click", () => {
+      if (!confirm("Clear all logged lines?")) return;
+      lines = []; saveLines(); renderLines(); renderSummary();
+    });
+
+    // initial render
+    renderItems();
+    renderLines();
+    renderSummary();
+    setModePanels();
+  </script>
+</body>
+</html>
