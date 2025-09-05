@@ -1,4 +1,120 @@
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="./icons/icon-192.png">
-<script src="./items.js"></script>
-<script src="./app.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Count Pro</title>
+  <meta name="theme-color" content="#0c533e" />
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon-192.png">
+  <style>
+    :root { --brand:#0c533e; --brandText:#fff; --accent:#106f52; --txt:#0b1f1a; --muted:#5b706b; --card:#fff; --line:#e9eceb; --bg:#f6f8f7; }
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--txt)}
+    header{background:var(--brand);color:var(--brandText);padding:18px 16px;display:flex;gap:12px;align-items:center;position:sticky;top:0}
+    header img{width:36px;height:36px;border-radius:6px} header h1{font-size:18px;margin:0}
+    main{padding:16px;max-width:1100px;margin:0 auto}
+    .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+    h2{font-size:16px;margin:0 0 10px 0}
+    label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+    input,select,button{font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#fff}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.spacer{flex:1}
+    #preview{width:100%;background:#000;border-radius:12px;aspect-ratio:3/2}
+    table{width:100%;border-collapse:collapse;font-size:14px} th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left}
+    .pill{font-size:12px;background:#eef2ff;color:#1e2a8a;padding:2px 8px;border-radius:999px}
+    .short{background:#fff5f5}
+  </style>
+</head>
+<body>
+  <header>
+    <img src="./icons/icon-192.png" alt="logo"><h1>Stock Count Pro</h1>
+    <div class="spacer"></div><span id="syncStatus" style="color:#d2e7de">Loading…</span>
+  </header>
+
+  <main>
+    <div class="grid">
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="row">
+          <label>Mode
+            <select id="mode"><option value="count">COUNT</option><option value="link">LINK BARCODE</option></select>
+          </label>
+          <label>Area
+            <select id="area"><option>FOH</option><option>BOH</option></select>
+          </label>
+          <label>User <input id="user" placeholder="Your name"></label>
+          <div class="spacer"></div>
+          <button id="exportLines">Export Counts CSV</button>
+          <button id="exportXlsx" class="primary">Export Counts XLSX</button>
+        </div>
+        <div class="row">
+          <label style="font-size:12px">Items backend (optional)<br><input id="itemsUrl" placeholder="Apps Script URL (GET/POST)"></label>
+          <label style="font-size:12px">Counts backend (optional)<br><input id="countsUrl" placeholder="Apps Script URL (POST)"></label>
+          <button id="saveCfg">Save</button>
+          <button id="syncNow">Sync Now</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Scanner</h2>
+        <div class="row">
+          <button id="start">Start Scanner</button><button id="stop" disabled>Stop</button><button id="flip">Flip Camera</button>
+          <div class="spacer"></div><span id="camInfo" style="color:#5b706b">—</span>
+        </div>
+        <video id="preview" playsinline></video>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Items</h2>
+        <div class="row">
+          <input id="search" placeholder="Search by SKU or name…" style="flex:1">
+          <button id="addItem">Add Item</button>
+          <button id="exportItems">Export Items CSV</button>
+          <label style="font-size:12px">Import CSV<input id="importItems" type="file" accept=".csv,text/csv"></label>
+        </div>
+        <div id="itemList" class="list"></div>
+      </div>
+
+      <div class="card" id="workPanel" style="display:none">
+        <div class="row"><span id="modePill" class="pill">Mode</span><strong id="selectedLabel"></strong><div class="spacer"></div><span id="panelStatus" style="color:#5b706b"></span></div>
+        <div id="linkPanel" class="row" style="display:none">
+          <button id="capture">Capture barcode</button><button id="clearBarcode">Clear barcode</button>
+        </div>
+        <div id="countPanel" class="row" style="display:none">
+          <label>Qty <input id="qty" type="number" inputmode="numeric" min="0" step="1" placeholder="e.g. 12"></label>
+          <label>Notes <input id="notes" placeholder="optional"></label>
+          <button id="addLine">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Lines Logged</h2>
+        <div class="row"><div class="spacer"></div><button id="clearLines">Clear</button></div>
+        <table><thead><tr><th>Time</th><th>Area</th><th>Barcode</th><th>SKU</th><th>Item</th><th>Qty</th><th>User</th><th>Notes</th><th></th></tr></thead><tbody id="lines"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>Summary by SKU</h2>
+        <table><thead><tr><th>SKU</th><th>Item</th><th>Total</th><th>Par</th><th>Variance</th></tr></thead><tbody id="summary"></tbody></table>
+        <div style="color:#5b706b;font-size:12px">Shortages highlighted when Total &lt; Par.</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- libs -->
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+  <!-- IMPORTANT: items.js must load BEFORE app.js -->
+  <script src="./items.js"></script>
+  <script src="./app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+    }
+  </script>
+</body>
+</html>
