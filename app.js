@@ -519,3 +519,13 @@ function init(){
   setPanels();
 }
 init();
+(async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    console.log("✅ Camera stream opened", stream);
+    document.getElementById("preview").srcObject = stream;
+  } catch (err) {
+    console.error("❌ Camera failed", err);
+    alert("Camera access failed: " + err.message);
+  }
+})();
