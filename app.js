@@ -102,19 +102,21 @@ async function startCam(){
     await listCameras();
     if (!currentDeviceId) return alert("No camera found on this device");
 
-    // 🔑 iOS/Safari fix: explicitly ask first
-    await ensureCameraPermission();
-
     scanning = true;
     stopBtn.disabled = false;
     startBtn.disabled = true;
+
+    // Attach video directly (works like ZXing demo)
+    preview.setAttribute("playsinline", "true");
+    preview.setAttribute("autoplay", "true");
+    preview.muted = true;
 
     codeReader.decodeFromVideoDevice(currentDeviceId, preview, (result, err) => {
       if (result) onScan(result.getText());
     });
   } catch (err) {
     console.error(err);
-    alert("Camera access failed. Please allow Camera for this site in your browser settings and try again.");
+    alert("Camera access failed: " + err.message);
   }
 }
 
