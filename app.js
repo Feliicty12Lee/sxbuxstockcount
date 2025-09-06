@@ -56,91 +56,89 @@ function saveCfg()   { localStorage.setItem(CFG_KEY,   JSON.stringify(cfg));   r
 function saveItems() { localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); renderItems(searchEl.value); renderSummary(); }
 function saveLines() { localStorage.setItem(LINES_KEY, JSON.stringify(lines)); renderLines(); renderSummary(); }
 
-/* -------------------- Camera / Scanner (iOS-first: BarcodeDetector, ZXing fallback) -------------------- */
-const codeReader = new (window.ZXing?.BrowserMultiFormatReader || function(){})();
+// ===== Minimal iOS-first scanner (no ZXing, no enumerateDevices) =====
+
 let scanning = false;
-let selectedItem = null;
-let captureToItem = null;
-let currentFacing = "environment"; // "environment" or "user"
+let currentFacing = "environment"; // "environment" (back) or "user"
 let rafId = null;
 
-function attachVideoAttributes() {
-  preview.setAttribute("playsinline", "true");
-  preview.setAttribute("autoplay", "true");
+// ——— helpers
+function $(id){ return document.getElementById(id); }
+const preview  = $("preview");
+const startBtn = $("start");
+const stopBtn  = $("stop");
+const flipBtn  = $("flip");
+
+function attachVideoAttrs(){
+  preview.setAttribute("playsinline","true");
+  preview.setAttribute("autoplay","true");
   preview.muted = true;
 }
 
-function stopStream() {
-  try { preview.srcObject && preview.srcObject.getTracks().forEach(t => t.stop()); } catch {}
-  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+function stopStream(){
+  try { preview.srcObject && preview.srcObject.getTracks().forEach(t=>t.stop()); } catch {}
+  if (rafId) cancelAnimationFrame(rafId), rafId = null;
 }
 
-async function startCam() {
-  attachVideoAttributes();
-  try {
-    // Open camera stream first (this also triggers permission on iOS)
+// ——— Start / Stop / Flip
+async function startCam(){
+  try{
+    if (!('BarcodeDetector' in window)){
+      alert("This iPhone browser doesn’t support BarcodeDetector. Open in Safari (iOS 16+) or update iOS.");
+      return;
+    }
+
+    attachVideoAttrs();
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing } });
     preview.srcObject = stream;
     await preview.play();
+
+    const detector = new BarcodeDetector({
+      formats: ['ean13','ean8','upc_a','upc_e','code128','code39','itf','codabar','qr_code','data_matrix','pdf417']
+    });
 
     scanning = true;
     stopBtn.disabled = false;
     startBtn.disabled = true;
 
-    // Prefer native BarcodeDetector on iOS (fast & no ZXing API quirks)
-    if ('BarcodeDetector' in window) {
-      const detector = new BarcodeDetector({
-        formats: ['ean13','ean8','upc_a','upc_e','code128','code39','qr_code','itf','codabar','data_matrix','pdf417']
-      });
-      const loop = async () => {
-        if (!scanning) return;
-        try {
-          const codes = await detector.detect(preview);
-          if (codes && codes.length) {
-            onScan(codes[0].rawValue || codes[0].rawValue === "" ? codes[0].rawValue : codes[0].rawValue);
-          }
-        } catch (e) { /* ignore per-frame errors */ }
-        rafId = requestAnimationFrame(loop);
-      };
+    const loop = async () => {
+      if (!scanning) return;
+      try{
+        const codes = await detector.detect(preview);
+        if (codes && codes.length){
+          const val = codes[0].rawValue || "";
+          if (val) onScan(val); // <-- your existing handler
+        }
+      }catch(e){ /* ignore per-frame errors */ }
       rafId = requestAnimationFrame(loop);
-      return;
-    }
+    };
+    rafId = requestAnimationFrame(loop);
 
-    // Fallback: ZXing without device enumeration (works on iOS too)
-    if (window.ZXing && codeReader.decodeFromConstraints) {
-      await codeReader.decodeFromConstraints({ video: { facingMode: currentFacing } }, preview, (result, err) => {
-        if (result) onScan(result.getText());
-        // ignore err frames
-      });
-      return;
-    }
-
-    alert("No scanner available: this browser lacks BarcodeDetector and ZXing.");
-  } catch (err) {
-    console.error("Camera failed:", err);
+  }catch(err){
+    console.error(err);
     alert("Camera access failed: " + err.message);
     stopCam();
   }
 }
 
-function stopCam() {
+function stopCam(){
   scanning = false;
   stopBtn.disabled = true;
   startBtn.disabled = false;
-  try { codeReader.reset && codeReader.reset(); } catch {}
   stopStream();
 }
 
-function flipCam() {
+function flipCam(){
   currentFacing = currentFacing === "environment" ? "user" : "environment";
-  if (scanning) { stopCam(); startCam(); }
+  if (scanning){ stopCam(); startCam(); }
 }
 
+// ——— Wire buttons
 startBtn.addEventListener("click", startCam);
 stopBtn .addEventListener("click", stopCam);
 flipBtn .addEventListener("click", flipCam);
-;
 
+// ===== Keep ALL your other app code below (items/lines/export/etc). =====
 
 // -------------------- Items --------------------
 function renderItems(filter = ""){
