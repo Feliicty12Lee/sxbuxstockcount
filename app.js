@@ -1,41 +1,8 @@
 // -------------------- Stock Count Pro (full app.js, fixed for iOS Safari camera) --------------------
 
-const CFG_KEY = "pwa_cfg_v2";
+const CFG_KEY = "pwa_cfg_v5";
 const ITEMS_KEY = "pwa_items_v2";
 const LINES_KEY = "pwa_lines_v2";
-
-/* ---- Defensive button wiring + error surfacing ---- */
-
-// Show any silent JS errors so we can see what's blocking the buttons
-window.addEventListener('error', (e) => {
-  alert('Script error: ' + (e?.message || 'unknown'));
-});
-
-// Helper to bind safely
-function bindClick(id, handler) {
-  var el = document.getElementById(id);
-  if (!el) {
-    console.warn('Missing element with id=', id);
-    return;
-  }
-  el.addEventListener('click', function (evt) {
-    try { handler(evt); } catch (err) {
-      alert('Button "' + id + '" failed: ' + err.message);
-      console.error(err);
-    }
-  });
-}
-
-// If scanner functions aren’t defined yet, provide harmless fallbacks
-function _noop(){ /* no-op */ }
-var _startCam = (typeof startCam === 'function') ? startCam : function(){ alert('Scanner not available right now.'); };
-var _stopCam  = (typeof stopCam  === 'function') ? stopCam  : _noop;
-var _flipCam  = (typeof flipCam  === 'function') ? flipCam  : _noop;
-
-// Wire buttons (will work even if other parts of the script error)
-bindClick('start', _startCam);
-bindClick('stop',  _stopCam);
-bindClick('flip',  _flipCam);
 
 let cfg   = JSON.parse(localStorage.getItem(CFG_KEY)  || "null") || { itemsUrl:"", countsUrl:"" };
 let items = JSON.parse(localStorage.getItem(ITEMS_KEY) || "null");
@@ -89,68 +56,74 @@ function saveCfg()   { localStorage.setItem(CFG_KEY,   JSON.stringify(cfg));   r
 function saveItems() { localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); renderItems(searchEl.value); renderSummary(); }
 function saveLines() { localStorage.setItem(LINES_KEY, JSON.stringify(lines)); renderLines(); renderSummary(); }
 
-// ===== Minimal iOS-first scanner (no ZXing, no enumerateDevices) =====
-
+// -------------------- Camera / Scanner --------------------
+const codeReader = new ZXing.BrowserMultiFormatReader();
+let devices = [];
+let currentDeviceId = null;
 let scanning = false;
-let currentFacing = "environment"; // "environment" (back) or "user"
-let rafId = null;
-
-// ——— helpers
-function $(id){ return document.getElementById(id); }
-const preview  = $("preview");
-const startBtn = $("start");
-const stopBtn  = $("stop");
-const flipBtn  = $("flip");
-
-function attachVideoAttrs(){
-  preview.setAttribute("playsinline","true");
-  preview.setAttribute("autoplay","true");
-  preview.muted = true;
-}
-
-function stopStream(){
-  try { preview.srcObject && preview.srcObject.getTracks().forEach(t=>t.stop()); } catch {}
-  if (rafId) cancelAnimationFrame(rafId), rafId = null;
-}
-
-// ——— Start / Stop / Flip
+let captureToItem = null;
+let selectedItem  = null;
 async function startCam(){
-  try{
-    if (!('BarcodeDetector' in window)){
-      alert("This iPhone browser doesn’t support BarcodeDetector. Open in Safari (iOS 16+) or update iOS.");
-      return;
-    }
-
-    attachVideoAttrs();
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing } });
-    preview.srcObject = stream;
-    await preview.play();
-
-    const detector = new BarcodeDetector({
-      formats: ['ean13','ean8','upc_a','upc_e','code128','code39','itf','codabar','qr_code','data_matrix','pdf417']
+  try {
+    // Ask for back camera
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
     });
 
+    // Attach stream to <video>
+    preview.srcObject = stream;
+    preview.setAttribute("playsinline", "true");
+    preview.setAttribute("autoplay", "true");
+    preview.muted = true;
+
+    await preview.play(); // 🔑 forces Safari to actually render video
+
+    // Hand over to ZXing
     scanning = true;
     stopBtn.disabled = false;
     startBtn.disabled = true;
+    codeReader.decodeFromVideoDevice(null, preview, (result, err) => {
+      if (result) onScan(result.getText());
+    });
 
-    const loop = async () => {
-      if (!scanning) return;
-      try{
-        const codes = await detector.detect(preview);
-        if (codes && codes.length){
-          const val = codes[0].rawValue || "";
-          if (val) onScan(val); // <-- your existing handler
-        }
-      }catch(e){ /* ignore per-frame errors */ }
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-
-  }catch(err){
-    console.error(err);
+  } catch (err) {
+    console.error("Camera failed:", err);
     alert("Camera access failed: " + err.message);
-    stopCam();
+  }
+}
+
+async function startCam(){
+  try {
+    // Step 1: open camera directly (environment if possible)
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+
+    // Step 2: attach to video element
+    preview.setAttribute("playsinline", "true");
+    preview.setAttribute("autoplay", "true");
+    preview.muted = true;
+    preview.srcObject = stream;
+    await preview.play();
+
+    // Step 3: enumerate devices (only works after permission)
+    devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+    if (devices.length) {
+      currentDeviceId = devices[0].deviceId;
+      camInfo.textContent = `${devices.length} camera(s)`;
+    } else {
+      camInfo.textContent = "No camera found";
+    }
+
+    // Step 4: hand stream to ZXing for decode
+    scanning = true;
+    stopBtn.disabled = false;
+    startBtn.disabled = true;
+    codeReader.decodeFromVideoDevice(currentDeviceId, preview, (result, err) => {
+      if (result) onScan(result.getText());
+    });
+
+  } catch (err) {
+    console.error("Camera failed:", err);
+    alert("Camera access failed: " + err.message);
   }
 }
 
@@ -158,20 +131,19 @@ function stopCam(){
   scanning = false;
   stopBtn.disabled = true;
   startBtn.disabled = false;
-  stopStream();
+  try { codeReader.reset(); } catch {}
 }
 
 function flipCam(){
-  currentFacing = currentFacing === "environment" ? "user" : "environment";
-  if (scanning){ stopCam(); startCam(); }
+  if (!devices.length) return;
+  const i = devices.findIndex(d => d.deviceId === currentDeviceId);
+  currentDeviceId = devices[(i+1) % devices.length].deviceId;
+  if (scanning) { stopCam(); startCam(); }
 }
 
-// ——— Wire buttons
 startBtn.addEventListener("click", startCam);
 stopBtn .addEventListener("click", stopCam);
 flipBtn .addEventListener("click", flipCam);
-
-// ===== Keep ALL your other app code below (items/lines/export/etc). =====
 
 // -------------------- Items --------------------
 function renderItems(filter = ""){
