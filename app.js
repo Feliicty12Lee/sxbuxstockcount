@@ -57,7 +57,7 @@ function saveItems() { localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); r
 function saveLines() { localStorage.setItem(LINES_KEY, JSON.stringify(lines)); renderLines(); renderSummary(); }
 
 // -------------------- Camera / Scanner --------------------
-const codeReader = new ZXing.BrowserMultiFormatReader();
+const codeReader = new navigator.mediaDevices.getUserMedia();
 let devices = [];
 let currentDeviceId = null;
 let scanning = false;
