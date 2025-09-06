@@ -1,5 +1,5 @@
 // Service Worker — Pro
-const CACHE = "stock-pro-v3";
+const CACHE = "stock-pro-v11";
 const ASSETS = [
   "./",
   "./index.html",
