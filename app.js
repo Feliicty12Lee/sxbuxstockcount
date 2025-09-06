@@ -4,6 +4,39 @@ const CFG_KEY = "pwa_cfg_v2";
 const ITEMS_KEY = "pwa_items_v2";
 const LINES_KEY = "pwa_lines_v2";
 
+/* ---- Defensive button wiring + error surfacing ---- */
+
+// Show any silent JS errors so we can see what's blocking the buttons
+window.addEventListener('error', (e) => {
+  alert('Script error: ' + (e?.message || 'unknown'));
+});
+
+// Helper to bind safely
+function bindClick(id, handler) {
+  var el = document.getElementById(id);
+  if (!el) {
+    console.warn('Missing element with id=', id);
+    return;
+  }
+  el.addEventListener('click', function (evt) {
+    try { handler(evt); } catch (err) {
+      alert('Button "' + id + '" failed: ' + err.message);
+      console.error(err);
+    }
+  });
+}
+
+// If scanner functions aren’t defined yet, provide harmless fallbacks
+function _noop(){ /* no-op */ }
+var _startCam = (typeof startCam === 'function') ? startCam : function(){ alert('Scanner not available right now.'); };
+var _stopCam  = (typeof stopCam  === 'function') ? stopCam  : _noop;
+var _flipCam  = (typeof flipCam  === 'function') ? flipCam  : _noop;
+
+// Wire buttons (will work even if other parts of the script error)
+bindClick('start', _startCam);
+bindClick('stop',  _stopCam);
+bindClick('flip',  _flipCam);
+
 let cfg   = JSON.parse(localStorage.getItem(CFG_KEY)  || "null") || { itemsUrl:"", countsUrl:"" };
 let items = JSON.parse(localStorage.getItem(ITEMS_KEY) || "null");
 if (!items && typeof ITEMS !== "undefined") { items = ITEMS; saveItems(); }
