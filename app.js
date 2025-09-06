@@ -57,7 +57,49 @@ function saveItems() { localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); r
 function saveLines() { localStorage.setItem(LINES_KEY, JSON.stringify(lines)); renderLines(); renderSummary(); }
 
 // -------------------- Camera / Scanner --------------------
-const codeReader = new navigator.mediaDevices.getUserMedia();
+let scanning = false;
+let rafId = null;
+let currentFacing = "environment"; // or "user"
+
+const preview = document.getElementById("preview");
+function attachVideoAttrs(){ preview.playsInline = true; preview.autoplay = true; preview.muted = true; }
+
+function stopStream(){
+  try { preview.srcObject && preview.srcObject.getTracks().forEach(t=>t.stop()); } catch {}
+  if (rafId) cancelAnimationFrame(rafId), rafId = null;
+}
+
+async function startCam(){
+  attachVideoAttrs();
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing } });
+  preview.srcObject = stream;
+  await preview.play();
+
+  // Use native BarcodeDetector (iOS/Android modern browsers)
+  if ('BarcodeDetector' in window) {
+    const detector = new BarcodeDetector({ formats: ['ean13','ean8','upc_a','upc_e','code128','code39','itf','codabar','qr_code','pdf417','data_matrix'] });
+    scanning = true;
+    const loop = async () => {
+      if (!scanning) return;
+      try {
+        const codes = await detector.detect(preview);
+        if (codes && codes.length) onScan(codes[0].rawValue || "");
+      } catch {}
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return;
+  }
+
+  alert("This browser doesn’t support BarcodeDetector.");
+}
+
+function stopCam(){ scanning = false; stopStream(); }
+
+document.getElementById("start").onclick = startCam;
+document.getElementById("stop").onclick  = stopCam;
+document.getElementById("flip").onclick  = () => { currentFacing = currentFacing === "environment" ? "user" : "environment"; if (scanning){ stopCam(); startCam(); } };
+
 let devices = [];
 let currentDeviceId = null;
 let scanning = false;
