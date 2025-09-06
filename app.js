@@ -56,66 +56,59 @@ function saveCfg()   { localStorage.setItem(CFG_KEY,   JSON.stringify(cfg));   r
 function saveItems() { localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); renderItems(searchEl.value); renderSummary(); }
 function saveLines() { localStorage.setItem(LINES_KEY, JSON.stringify(lines)); renderLines(); renderSummary(); }
 
-// -------------------- Camera / Scanner --------------------
+/* -------------------- Camera / Scanner (no enumerateDevices) -------------------- */
 const codeReader = new ZXing.BrowserMultiFormatReader();
-let devices = [];
-let currentDeviceId = null;
 let scanning = false;
+let selectedItem = null;
 let captureToItem = null;
-let selectedItem  = null;
+let currentFacing = "environment"; // "environment" (back) or "user" (front)
 
-async function startCam(){
+function attachVideoAttributes() {
+  preview.setAttribute("playsinline", "true");
+  preview.setAttribute("autoplay", "true");
+  preview.muted = true;
+}
+
+async function startCam() {
   try {
-    // Step 1: open camera directly (environment if possible)
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    attachVideoAttributes();
 
-    // Step 2: attach to video element
-    preview.setAttribute("playsinline", "true");
-    preview.setAttribute("autoplay", "true");
-    preview.muted = true;
-    preview.srcObject = stream;
-    await preview.play();
+    // Use constraints instead of listing devices (works on iOS Safari)
+    const constraints = { video: { facingMode: currentFacing } };
 
-    // Step 3: enumerate devices (only works after permission)
-    devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
-    if (devices.length) {
-      currentDeviceId = devices[0].deviceId;
-      camInfo.textContent = `${devices.length} camera(s)`;
-    } else {
-      camInfo.textContent = "No camera found";
-    }
-
-    // Step 4: hand stream to ZXing for decode
     scanning = true;
     stopBtn.disabled = false;
     startBtn.disabled = true;
-    codeReader.decodeFromVideoDevice(currentDeviceId, preview, (result, err) => {
-      if (result) onScan(result.getText());
-    });
 
+    // ZXing will open the stream internally
+    await codeReader.decodeFromConstraints(constraints, preview, (result, err) => {
+      if (result) onScan(result.getText());
+      // ignore err frames; ZXing fires many while searching
+    });
   } catch (err) {
     console.error("Camera failed:", err);
     alert("Camera access failed: " + err.message);
+    stopCam();
   }
 }
 
-function stopCam(){
+function stopCam() {
   scanning = false;
   stopBtn.disabled = true;
   startBtn.disabled = false;
   try { codeReader.reset(); } catch {}
+  try { preview.srcObject && preview.srcObject.getTracks().forEach(t => t.stop()); } catch {}
 }
 
-function flipCam(){
-  if (!devices.length) return;
-  const i = devices.findIndex(d => d.deviceId === currentDeviceId);
-  currentDeviceId = devices[(i+1) % devices.length].deviceId;
+function flipCam() {
+  currentFacing = currentFacing === "environment" ? "user" : "environment";
   if (scanning) { stopCam(); startCam(); }
 }
 
 startBtn.addEventListener("click", startCam);
 stopBtn .addEventListener("click", stopCam);
 flipBtn .addEventListener("click", flipCam);
+
 
 // -------------------- Items --------------------
 function renderItems(filter = ""){
