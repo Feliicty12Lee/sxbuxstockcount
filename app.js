@@ -69,7 +69,16 @@ async function startCam(){
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" }
     });
-
+// Request access to the user's camera
+navigator.mediaDevices.getUserMedia({ video: true })
+    .then((stream) => {
+        // Set the video element's source to the camera stream
+        const video = document.getElementById('camera');
+        video.srcObject = stream;
+    })
+    .catch((error) => {
+        console.error("Error accessing the camera: ", error);
+    });
     // Attach stream to <video>
     preview.srcObject = stream;
     preview.setAttribute("playsinline", "true");
