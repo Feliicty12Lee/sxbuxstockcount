@@ -2,14 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Stock Count Pro</title>
+
+  <!-- PWA / fullscreen settings -->
   <meta name="theme-color" content="#0c533e" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- Icons & manifest -->
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon-192.png">
+
   <style>
     :root { --brand:#0c533e; --brandText:#fff; --accent:#106f52; --txt:#0b1f1a; --muted:#5b706b; --card:#fff; --line:#e9eceb; --bg:#f6f8f7; }
-    *{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--txt)}
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      background:var(--bg);
+      color:var(--txt);
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
     header{background:var(--brand);color:var(--brandText);padding:18px 16px;display:flex;gap:12px;align-items:center;position:sticky;top:0}
     header img{width:36px;height:36px;border-radius:6px} header h1{font-size:18px;margin:0}
     main{padding:16px;max-width:1100px;margin:0 auto}
@@ -32,6 +48,7 @@
   </header>
 
   <main>
+    <!-- controls -->
     <div class="grid">
       <div class="card">
         <h2>Controls</h2>
@@ -55,16 +72,18 @@
         </div>
       </div>
 
+      <!-- scanner -->
       <div class="card">
         <h2>Scanner</h2>
         <div class="row">
           <button id="start">Start Scanner</button><button id="stop" disabled>Stop</button><button id="flip">Flip Camera</button>
           <div class="spacer"></div><span id="camInfo" style="color:#5b706b">—</span>
         </div>
-        <video id="preview" playsinline></video>
+        <video id="preview" playsinline autoplay muted></video>
       </div>
     </div>
 
+    <!-- items + work panel -->
     <div class="grid">
       <div class="card">
         <h2>Items</h2>
@@ -90,6 +109,7 @@
       </div>
     </div>
 
+    <!-- lines + summary -->
     <div class="grid">
       <div class="card">
         <h2>Lines Logged</h2>
@@ -104,11 +124,11 @@
     </div>
   </main>
 
-  <!-- libs -->
+  <!-- libraries -->
   <script src="https://unpkg.com/@zxing/library@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
-  <!-- IMPORTANT: items.js must load BEFORE app.js -->
+  <!-- app scripts -->
   <script src="./items.js"></script>
   <script src="./app.js"></script>
   <script>
