@@ -14,6 +14,15 @@
   <!-- Icons & manifest -->
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon-192.png">
+  <div class="card">
+  <h2>Scanner</h2>
+  <div class="row">
+    <button id="start">Start Camera</button>
+    <button id="stop" disabled>Stop</button>
+    <button id="flip">Flip Camera</button>
+  </div>
+  <video id="preview" playsinline autoplay muted></video>
+</div>
 
   <style>
     :root { --brand:#0c533e; --brandText:#fff; --accent:#106f52; --txt:#0b1f1a; --muted:#5b706b; --card:#fff; --line:#e9eceb; --bg:#f6f8f7; }
