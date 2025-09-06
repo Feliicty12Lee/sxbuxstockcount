@@ -97,7 +97,7 @@ async function listCameras() {
   }
 }
 
-async function startCam(){
+aasync function startCam(){
   try {
     await listCameras();
     if (!currentDeviceId) return alert("No camera found on this device");
@@ -106,11 +106,19 @@ async function startCam(){
     stopBtn.disabled = false;
     startBtn.disabled = true;
 
-    // Attach video directly (works like ZXing demo)
+    // Get raw stream manually
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: currentDeviceId } }
+    });
+
+    // Attach to <video>
     preview.setAttribute("playsinline", "true");
     preview.setAttribute("autoplay", "true");
     preview.muted = true;
+    preview.srcObject = stream;
+    await preview.play();
 
+    // Then let ZXing decode from that same device
     codeReader.decodeFromVideoDevice(currentDeviceId, preview, (result, err) => {
       if (result) onScan(result.getText());
     });
@@ -119,6 +127,7 @@ async function startCam(){
     alert("Camera access failed: " + err.message);
   }
 }
+
 
 function stopCam(){
   scanning = false;
