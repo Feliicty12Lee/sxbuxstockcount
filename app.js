@@ -56,12 +56,13 @@ function saveCfg()   { localStorage.setItem(CFG_KEY,   JSON.stringify(cfg));   r
 function saveItems() { localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); renderItems(searchEl.value); renderSummary(); }
 function saveLines() { localStorage.setItem(LINES_KEY, JSON.stringify(lines)); renderLines(); renderSummary(); }
 
-/* -------------------- Camera / Scanner (no enumerateDevices) -------------------- */
-const codeReader = new ZXing.BrowserMultiFormatReader();
+/* -------------------- Camera / Scanner (iOS-first: BarcodeDetector, ZXing fallback) -------------------- */
+const codeReader = new (window.ZXing?.BrowserMultiFormatReader || function(){})();
 let scanning = false;
 let selectedItem = null;
 let captureToItem = null;
-let currentFacing = "environment"; // "environment" (back) or "user" (front)
+let currentFacing = "environment"; // "environment" or "user"
+let rafId = null;
 
 function attachVideoAttributes() {
   preview.setAttribute("playsinline", "true");
@@ -69,22 +70,52 @@ function attachVideoAttributes() {
   preview.muted = true;
 }
 
-async function startCam() {
-  try {
-    attachVideoAttributes();
+function stopStream() {
+  try { preview.srcObject && preview.srcObject.getTracks().forEach(t => t.stop()); } catch {}
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+}
 
-    // Use constraints instead of listing devices (works on iOS Safari)
-    const constraints = { video: { facingMode: currentFacing } };
+async function startCam() {
+  attachVideoAttributes();
+  try {
+    // Open camera stream first (this also triggers permission on iOS)
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing } });
+    preview.srcObject = stream;
+    await preview.play();
 
     scanning = true;
     stopBtn.disabled = false;
     startBtn.disabled = true;
 
-    // ZXing will open the stream internally
-    await codeReader.decodeFromConstraints(constraints, preview, (result, err) => {
-      if (result) onScan(result.getText());
-      // ignore err frames; ZXing fires many while searching
-    });
+    // Prefer native BarcodeDetector on iOS (fast & no ZXing API quirks)
+    if ('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({
+        formats: ['ean13','ean8','upc_a','upc_e','code128','code39','qr_code','itf','codabar','data_matrix','pdf417']
+      });
+      const loop = async () => {
+        if (!scanning) return;
+        try {
+          const codes = await detector.detect(preview);
+          if (codes && codes.length) {
+            onScan(codes[0].rawValue || codes[0].rawValue === "" ? codes[0].rawValue : codes[0].rawValue);
+          }
+        } catch (e) { /* ignore per-frame errors */ }
+        rafId = requestAnimationFrame(loop);
+      };
+      rafId = requestAnimationFrame(loop);
+      return;
+    }
+
+    // Fallback: ZXing without device enumeration (works on iOS too)
+    if (window.ZXing && codeReader.decodeFromConstraints) {
+      await codeReader.decodeFromConstraints({ video: { facingMode: currentFacing } }, preview, (result, err) => {
+        if (result) onScan(result.getText());
+        // ignore err frames
+      });
+      return;
+    }
+
+    alert("No scanner available: this browser lacks BarcodeDetector and ZXing.");
   } catch (err) {
     console.error("Camera failed:", err);
     alert("Camera access failed: " + err.message);
@@ -96,8 +127,8 @@ function stopCam() {
   scanning = false;
   stopBtn.disabled = true;
   startBtn.disabled = false;
-  try { codeReader.reset(); } catch {}
-  try { preview.srcObject && preview.srcObject.getTracks().forEach(t => t.stop()); } catch {}
+  try { codeReader.reset && codeReader.reset(); } catch {}
+  stopStream();
 }
 
 function flipCam() {
@@ -108,6 +139,7 @@ function flipCam() {
 startBtn.addEventListener("click", startCam);
 stopBtn .addEventListener("click", stopCam);
 flipBtn .addEventListener("click", flipCam);
+;
 
 
 // -------------------- Items --------------------
