@@ -77,7 +77,7 @@ async function startCam(){
     await preview.play();
 
     // Step 3: enumerate devices (only works after permission)
-    devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+    devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
     if (devices.length) {
       currentDeviceId = devices[0].deviceId;
       camInfo.textContent = `${devices.length} camera(s)`;
