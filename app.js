@@ -111,37 +111,37 @@ aasync function startCam(){
       video: { deviceId: { exact: currentDeviceId } }
     });
 
-    // Attach to <video>
+    async function startCam(){
+  try {
+    // Step 1: request camera access
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+
+    // Step 2: attach to <video>
     preview.setAttribute("playsinline", "true");
     preview.setAttribute("autoplay", "true");
     preview.muted = true;
     preview.srcObject = stream;
     await preview.play();
 
-    // Then let ZXing decode from that same device
+    // Step 3: now enumerate devices (works only after permission)
+    devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+    currentDeviceId = devices.length ? devices[0].deviceId : null;
+    camInfo.textContent = devices.length ? `${devices.length} camera(s)` : "No camera found";
+
+    // Step 4: hand over to ZXing for decoding
+    scanning = true;
+    stopBtn.disabled = false;
+    startBtn.disabled = true;
     codeReader.decodeFromVideoDevice(currentDeviceId, preview, (result, err) => {
       if (result) onScan(result.getText());
     });
+
   } catch (err) {
     console.error(err);
     alert("Camera access failed: " + err.message);
   }
 }
 
-
-function stopCam(){
-  scanning = false;
-  stopBtn.disabled = true;
-  startBtn.disabled = false;
-  try { codeReader.reset(); } catch {}
-}
-
-function flipCam(){
-  if (!devices.length) return;
-  const i = devices.findIndex(d => d.deviceId === currentDeviceId);
-  currentDeviceId = devices[(i + 1) % devices.length].deviceId;
-  if (scanning) { stopCam(); startCam(); }
-}
 
 // Buttons
 startBtn.addEventListener("click", startCam);
